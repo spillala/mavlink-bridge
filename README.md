@@ -32,7 +32,10 @@ docs/decisions/              ADRs
 ```sh
 go build ./... && go test ./...
 
-MAVLINK_ADDRESS=px4-sitl-gazebo-svc:14550 \
+# Run as a sidecar sharing px4-sitl-gazebo's network namespace — see
+# "Deployment" below for why MAVLINK_ADDRESS is a bind address, not a
+# remote host:port.
+MAVLINK_ADDRESS=:14550 \
 DRONEFLEET_URL=http://dronefleet-svc.dronefleet:80 \
 DRONE_ID=drone-004 \
 go run ./cmd/bridge
@@ -61,19 +64,19 @@ real checksummed MAVLink wire format either way (round-trip, and a
 truncated/corrupt-log case), so the gap is specifically "get real recorded
 bytes," not "does the ingestion path handle messy data."
 
-## Known issue: `px4-sitl-gazebo-svc:14550` isn't actually serving MAVLink right now
+## Deployment: this must run as a sidecar, not a standalone service
 
-Verified during Phase A implementation, not yet fixed (out of scope for
-this repo — it's a `px4-sitl-gazebo`/`dockops-cicd` change): the live PX4
-SITL pod's `/proc/net/udp` shows no socket bound to 14550 at all — the
-actual bound UDP ports were 13030, 14280, 14580, 10317, 10318, and 18570.
-`14580` is the closest match and a reasonable guess for the real GCS-facing
-MAVLink port, but this wasn't confirmed against PX4's own startup log (the
-pod had been running 6 days and its log buffer had already rotated past
-the startup messages). Whoever picks this up next should either force a
-fresh pod restart and capture the startup log, or just try `14580`.
+PX4 SITL sends its MAVLink stream *out* to its own loopback,
+`127.0.0.1:14550` — it does not listen for a GCS to connect. A Kubernetes
+Service can't deliver that (Services route inbound traffic to a pod, they
+don't capture what a pod sends to its own loopback). `mavlink-bridge` binds
+a UDP **server** on `:14550` and must run as a second container in the same
+Pod as `px4-sitl-gazebo`, sharing its network namespace — not behind
+`px4-sitl-gazebo-svc`. See
+`docs/decisions/0003-udp-server-sidecar-not-client.md` for how this was
+confirmed (packet capture against the live pod) and what it changes.
 
-Every other verification here — the unit tests, the Docker build, and a
-full round-trip through a real checksummed `.tlog` — passed, including
-against the real dronefleet API contract. The gap is specifically "which
-port does PX4 actually answer on," not this bridge's own logic.
+Verified end-to-end against the real running simulator: `drone-004`
+received live `armed`/`flightMode`/`landedState`/position data, including
+the AUTO.LOITER flight mode decode and PX4's default SITL home position
+(Zürich) — see the ADR for the full trace.

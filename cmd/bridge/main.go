@@ -24,7 +24,7 @@ import (
 
 func main() {
 	var (
-		mavlinkAddress = flag.String("mavlink-address", envOr("MAVLINK_ADDRESS", "px4-sitl-gazebo-svc:14550"), "MAVLink UDP source, host:port")
+		mavlinkAddress = flag.String("mavlink-address", envOr("MAVLINK_ADDRESS", ":14550"), "address to bind and listen for PX4's MAVLink UDP stream on — run this process as a sidecar sharing px4-sitl-gazebo's network namespace, since PX4 sends to its own loopback")
 		dronefleetURL  = flag.String("dronefleet-url", envOr("DRONEFLEET_URL", "http://localhost:8080"), "base URL of the dronefleet API")
 		droneID        = flag.String("drone-id", envOr("DRONE_ID", "drone-001"), "dronefleet drone ID this MAVLink system reports as")
 		systemID       = flag.Int("system-id", envOrInt("MAVLINK_SYSTEM_ID", 1), "MAVLink SystemID to track (PX4 SITL default: 1)")
@@ -65,14 +65,14 @@ func main() {
 
 	live, err := mavlinksrc.Connect(*mavlinkAddress)
 	if err != nil {
-		log.Fatalf("connect to %s: %v", *mavlinkAddress, err)
+		log.Fatalf("listen on %s: %v", *mavlinkAddress, err)
 	}
 	defer live.Close()
 
 	if h != nil {
 		h.SetReady(true)
 	}
-	log.Printf("[bridge] connected to %s, tracking MAVLink system %d as %s", *mavlinkAddress, *systemID, *droneID)
+	log.Printf("[bridge] listening on %s, tracking MAVLink system %d as %s", *mavlinkAddress, *systemID, *droneID)
 
 	go func() {
 		ticker := time.NewTicker(*staleCheck)

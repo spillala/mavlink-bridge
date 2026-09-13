@@ -9,13 +9,20 @@ import (
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/common"
 )
 
-// Live connects to a MAVLink source over UDP and emits decoded Frames.
+// Live listens for a MAVLink source over UDP and emits decoded Frames.
 //
-// Read-only by construction: the only bytes this ever transmits are the
-// node's own periodic HEARTBEAT — gomavlib sends this automatically
-// (MAV_TYPE_GCS, identity/presence only) so PX4 recognises a GCS is
-// listening and starts streaming to it; that handshake is what "UDP client"
-// mode means for MAVLink. Nothing in this package calls WriteMessageAll or
+// This binds a UDP *server* socket, not a client. PX4 SITL does not listen
+// for GCS connections on 14550 — it sends its MAVLink stream outbound to
+// 127.0.0.1:14550 (confirmed by packet capture against the live cluster's
+// px4-sitl-gazebo pod: real MAVLink v2 frames arriving at that address,
+// nothing ever bound to 14550 inside the PX4 container itself). That means
+// this process can only receive that stream by sharing PX4's network
+// namespace — deployed as a sidecar in the same Pod, not a separate
+// Service/ClusterIP. See docs/decisions/0003-udp-server-sidecar-not-client.md.
+//
+// Read-only by construction regardless of topology: the only bytes this
+// ever transmits are gomavlib's own periodic HEARTBEAT (MAV_TYPE_GCS,
+// identity/presence only). Nothing in this package calls WriteMessageAll or
 // WriteMessageTo, and nothing here can arm, disarm, change mode, or
 // otherwise command the flight controller. See
 // docs/decisions/0002-mavlink-library-and-read-only-boundary.md.
@@ -23,18 +30,19 @@ type Live struct {
 	node *gomavlib.Node
 }
 
-// Connect opens a UDP client endpoint at address, e.g. "px4-sitl-gazebo-svc:14550".
+// Connect binds a UDP server endpoint at address, e.g. ":14550" — run this
+// as a sidecar sharing px4-sitl-gazebo's network namespace.
 func Connect(address string) (*Live, error) {
 	node := &gomavlib.Node{
 		Endpoints: []gomavlib.EndpointConf{
-			gomavlib.EndpointUDPClient{Address: address},
+			gomavlib.EndpointUDPServer{Address: address},
 		},
 		Dialect:     common.Dialect,
 		OutVersion:  gomavlib.V2,
 		OutSystemID: 250, // convention for a companion-computer/GCS-class peer, not a vehicle
 	}
 	if err := node.Initialize(); err != nil {
-		return nil, fmt.Errorf("connect to %s: %w", address, err)
+		return nil, fmt.Errorf("listen on %s: %w", address, err)
 	}
 	return &Live{node: node}, nil
 }
