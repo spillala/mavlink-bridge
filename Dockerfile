@@ -8,6 +8,7 @@ RUN go mod download
 
 COPY cmd ./cmd
 COPY internal ./internal
+COPY testdata ./testdata
 
 ARG APP_VERSION=dev
 ARG GIT_SHA=local
